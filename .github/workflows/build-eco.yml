@@ -1,0 +1,66 @@
+name: Compilar ECO para Minecraft 26.3
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Validar e compilar ECO
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Baixar os arquivos do repositório
+        uses: actions/checkout@v7
+
+      - name: Preparar Java 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Preparar Gradle 9.7.1
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: '9.7.1'
+
+      - name: Extrair o projeto-fonte enviado
+        shell: bash
+        run: |
+          mkdir -p _eco-source
+          unzip -q ECO_A_Ultima_Transmissao_Fabric_26.3_v0.3.0.zip -d _eco-source
+          test -f _eco-source/ECO_Ultima_Transmissao/build.gradle
+          test -f _eco-source/ECO_Ultima_Transmissao/src/main/resources/fabric.mod.json
+
+      - name: Validar metadados, áudios e traduções
+        working-directory: _eco-source/ECO_Ultima_Transmissao
+        run: python3 scripts/validate_resources.py
+
+      - name: Compilar o mod
+        working-directory: _eco-source/ECO_Ultima_Transmissao
+        run: gradle clean build --no-daemon
+
+      - name: Separar o JAR instalável
+        working-directory: _eco-source/ECO_Ultima_Transmissao
+        shell: bash
+        run: |
+          mkdir -p build/artifact
+          find build/libs -maxdepth 1 -type f -name '*.jar' ! -name '*-sources.jar' ! -name '*-dev.jar' -exec cp {} build/artifact/ \;
+          count=$(find build/artifact -maxdepth 1 -type f -name '*.jar' | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "Esperava exatamente 1 JAR instalável; encontrei $count."
+            ls -lh build/libs || true
+            exit 1
+          fi
+          ls -lh build/artifact/
+
+      - name: Disponibilizar o JAR instalável para baixar
+        uses: actions/upload-artifact@v7
+        with:
+          path: _eco-source/ECO_Ultima_Transmissao/build/artifact/*.jar
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
